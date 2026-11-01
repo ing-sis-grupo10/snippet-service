@@ -1,7 +1,14 @@
+import com.github.spotbugs.snom.Confidence
+import com.github.spotbugs.snom.Effort
+
 plugins {
 	id 'java'
 	id 'org.springframework.boot' version '4.1.1'
 	id 'io.spring.dependency-management' version '1.1.7'
+	id 'checkstyle'
+	id 'jacoco'
+	id 'com.diffplug.spotless' version '8.10.4'
+	id 'com.github.spotbugs' version '6.5.13'
 }
 
 group = 'ar.edu.austral.grupo10'
@@ -26,8 +33,71 @@ dependencies {
 	testImplementation 'org.springframework.boot:spring-boot-starter-data-jpa-test'
 	testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+	testRuntimeOnly 'com.h2database:h2'
 }
 
 tasks.named('test') {
 	useJUnitPlatform()
+	finalizedBy tasks.named('jacocoTestReport')
+}
+
+spotless {
+	java {
+		googleJavaFormat().aosp()
+		removeUnusedImports()
+		trimTrailingWhitespace()
+		endWithNewline()
+	}
+}
+
+checkstyle {
+	toolVersion = '10.12.5'
+	configFile = file('config/checkstyle/checkstyle.xml')
+	maxWarnings = 0
+}
+
+spotbugs {
+	toolVersion = '4.8.6'
+	effort = Effort.valueOf('MAX') // regla personalizada, el default es medio
+	reportLevel = Confidence.valueOf('LOW') // regla personalizada, el default es medium
+	excludeFilter = file('config/spotbugs/exclude.xml')
+}
+
+jacoco {
+	toolVersion = '0.8.11'
+}
+
+// la clase main de Spring no se ejecuta en los tests, no tiene sentido medirla
+def jacocoExcludes = ['**/*Application*']
+
+tasks.named('jacocoTestReport') {
+	dependsOn tasks.named('test')
+	reports {
+		xml.required = true
+		html.required = true
+	}
+	classDirectories.setFrom(files(classDirectories.files.collect { fileTree(dir: it, exclude: jacocoExcludes) }))
+}
+
+tasks.named('jacocoTestCoverageVerification') {
+	dependsOn tasks.named('test')
+	violationRules {
+		rule {
+			limit { minimum = 0.80 }
+		}
+	}
+	classDirectories.setFrom(files(classDirectories.files.collect { fileTree(dir: it, exclude: jacocoExcludes) }))
+}
+
+tasks.named('check') {
+	dependsOn tasks.named('jacocoTestCoverageVerification')
+}
+
+tasks.register('installGitHooks', Copy) {
+	from 'hooks/pre-commit'
+	into '.git/hooks'
+	filePermissions { unix('0755') }
+}
+tasks.named('build') {
+	dependsOn 'installGitHooks'
 }
